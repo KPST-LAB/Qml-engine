@@ -72,6 +72,13 @@ The same test run live through the web UI and the router (12 shifts × 2 jobs ×
 given-up step: when it ran, shift 1 had not yet left the window, so nothing was recalled (turns still in the context are
 not put in twice) and the planner overlooked the record in a context of about 5,600 tokens.
 
+Videos (click to play):
+
+| The live run (4:29) | The comparison (1:48) |
+|---|---|
+| [![Live run: web UI, simulator, engine logs, requests and GPU on one clock](media/qml-robotsim-live-run.jpg)](media/qml-robotsim-live-run.mp4) | [![Comparison: real-time control and the end-of-operation review](media/qml-engine-comparison.jpg)](media/qml-engine-comparison.mp4) |
+| Web UI, simulator, engine logs, requests and GPU on one clock; 60× speed during the operation, 20× during the reviews. | SmolVLA on qml-engine vs lerobot in real-time control; the review answers of qml-engine, vLLM and SGLang. |
+
 ## Models
 
 | Model | Weights | GPUs | Path |
