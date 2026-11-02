@@ -49,22 +49,24 @@ session restores the conversation's KV from the engine's store, so only the new 
 
 A planner model (Qwen3-30B-A3B) directs a simulated robot (LIBERO-Goal in MuJoCo, SmolVLA policy served by qml-engine)
 through 16 shifts of jobs. A step the robot cannot finish is given up. After the last shift, one review per shift asks the
-planner to redo every step given up in that shift, so a step comes back only if the planner remembers it. Same planner,
-same robot results for every condition; only the way the history reaches the planner differs. Scored from the run
-records, three seeds.
+planner to redo every step given up in that shift, so a step comes back only if the planner remembers it.
 
-| Condition | Steps completed | Given-up steps redone | Review answers correct | Steps redone that were never given up | Prompt tokens per call |
-|---|---|---|---|---|---|
-| No history | 35.0% | 0 / 160 | 0 / 48 | 0 | 354 |
-| SGLang, 8K window | 65.8% | 46 / 181 | 9 / 48 | 6 | 6,916 |
-| llama.cpp, 8K window | 66.1% | 50 / 181 | 8 / 48 | 4 | 6,916 |
-| vLLM, full history every call | 87.6% | 125 / 181 | 17 / 48 | 14 | 15,894 |
-| qml-engine (session memory, time-range recall) | **94.9%** | **160 / 181** | **46 / 48** | **0** | **102** |
+Why the window is 8,192 tokens: it is the KV that each robot's session keeps on the GPU, and it is chosen for the number
+of robots one GPU serves, not for this test. With Qwen3-30B-A3B one token of KV takes 96 KB (48 layers, 4 KV heads of 128,
+bf16), so an 8K window is 0.8 GB per robot and 100 robots take 80 GB; a 40,960-token context per robot would take 4.0 GB,
+and the same memory would hold about 20 robots. Within the 8K window qml-engine archives the turns that leave it in the
+session's store and puts back the ones a question needs; sessions not being called stay in the store and are restored when
+their robot calls. An engine without session memory keeps no KV per robot: its client resends the history on every call
+(about 16K tokens after 16 shifts, growing with the operation), and the engine computes it again whenever its prefix cache
+no longer holds it. A comparison of engines therefore has to be made with many robots on the same GPU (response time and
+throughput at a given number of robots); this one-robot test does not measure that, and an 8K window given to the other
+engines would only cut their history, so no engine comparison is shown here.
 
-With an 8K window the early shifts fall out of the prompt. With the full history the planner has every record but mixes
-up shift numbers in a 16-shift history. qml-engine keeps one session per operation, archives turns that leave its window
-in the session's store and, for the review of shift k, puts back only the exchanges of that shift's time range in front
-of the question.
+qml-engine at a window of 8,192 tokens, three seeds, scored from the run records: 94.9% of steps completed, 160 of 181
+given-up steps redone, 46 of 48 review answers correct, no step redone that was never given up, 102 prompt tokens computed
+per call. The client used qml-engine's own API: one session per operation (turns that leave the window are archived in the
+session's store), the shift's time range sent with its review (`recall_range`), and the review prompt set as the session's
+recall trigger (`on_match`). These are client choices that an OpenAI-API client does not have.
 
 The same test run live through the web UI and the router (12 shifts × 2 jobs × 3 steps, engine window 8,192 tokens,
 2026-10-31): 94.4% of steps completed (68 / 72) and 23 of 27 given-up steps redone. Reviews 2 to 12 each recalled 425 to
@@ -72,12 +74,26 @@ The same test run live through the web UI and the router (12 shifts × 2 jobs ×
 given-up step: when it ran, shift 1 had not yet left the window, so nothing was recalled (turns still in the context are
 not put in twice) and the planner overlooked the record in a context of about 5,600 tokens.
 
-Videos (click to play):
+Video (click to play):
 
-| The live run (4:29) | The comparison (1:48) |
-|---|---|
-| [![Live run: web UI, simulator, engine logs, requests and GPU on one clock](media/qml-robotsim-live-run.jpg)](media/qml-robotsim-live-run.mp4) | [![Comparison: real-time control and the end-of-operation review](media/qml-engine-comparison.jpg)](media/qml-engine-comparison.mp4) |
-| Web UI, simulator, engine logs, requests and GPU on one clock; 60× speed during the operation, 20× during the reviews. | SmolVLA on qml-engine vs lerobot in real-time control; the review answers of qml-engine, vLLM and SGLang. |
+| The live run (4:29) |
+|---|
+| [![Live run: web UI, simulator, engine logs, requests and GPU on one clock](media/qml-robotsim-live-run.jpg)](media/qml-robotsim-live-run.mp4) |
+| Web UI, simulator, engine logs, requests and GPU on one clock; 60× speed during the operation, 20× during the reviews. |
+
+## Planned: 100 robots and long multi-job operations
+
+The next measurements, to be added here when done (H200, Qwen3-30B-A3B planner, SmolVLA policy, both on qml-engine):
+
+- **100 robots on one GPU, 8K session each.** 8 robots simulated live (LIBERO in MuJoCo) and 92 driven by recorded LIBERO
+  results, all 100 planners called for real. Against vLLM and SGLang on the same GPU with the full history sent on every
+  call: response time (median, p95), calls per second, steps completed, and recall of records that left the window.
+- **Long multi-job tasks.** One instruction of 6 to 12 subtasks given at once instead of single-step commands. The planner
+  splits it, the policy executes, a failed subtask is planned again, and the planner keeps the earlier subtasks, jobs and
+  failures beyond its 8K window. Measured: tasks completed, subtasks reached, re-plans and their outcome.
+- **Training data from the operation.** Every attempt recorded by the engine (camera frames, robot state, actions, outcome,
+  the planner's exchanges) and exported as a LeRobot v3.0 dataset, successes and failure-recovery episodes alike, for
+  fine-tuning the policy outside the engine; then the same tasks run again.
 
 ## Models
 
